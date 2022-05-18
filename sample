@@ -1,0 +1,340 @@
+import pprint
+import requests
+import ccxt
+import datetime
+import pandas as pd
+import os
+import time
+import sys
+import json
+from prettytable import PrettyTable
+from binance_d import RequestClient
+from binance_d.constant.test import *
+from binance_d.base.printobject import *
+from binance_d.model.constant import *
+
+import binance
+from binance.client import Client
+from RequestClient.RestRequestClient import RestRequestClient, ResponseError
+
+flag_short = 0
+flag_long = 0
+flag_time_short = 0
+flag_time_long = 0
+short_time = 0
+long_time = 0
+short_id = ""
+long_id = ""
+first_long_buy_id = ""
+position_long = ""
+first_short_buy_id = ""
+position_short = ""
+
+
+def Start_Future_Margin():
+    global flag_short
+    global flag_long
+    global flag_time_short
+    global flag_time_long
+    global short_id
+    global long_id
+    global first_long_buy_id
+    global position_long
+    global first_short_buy_id
+    global position_short
+
+    try:
+        binance_api = ''
+        binance_secret = ''
+        request_client = RequestClient(api_key=binance_api, secret_key=binance_secret)
+
+        client = Client(binance_api, binance_secret)
+        infos = client.futures_position_information(symbol='BTCUSDT')
+
+
+
+
+
+
+        datelog = datetime.datetime.now().date()
+        logf = sys.stdout
+        sys.stdout = open('log' + str(datelog) + '.txt', 'a+')
+
+        print("루프 시작 ==================================")
+        print(datetime.datetime.now())
+        print("현재 계좌 정보")
+        pprint.pprint(infos)
+        try:
+            print("포지션 : "+infos[1]['positionSide'])
+            print("마진 :" +infos[1]['isolatedMargin'])
+            print("지갑 : "+infos[1]['isolatedWallet'])
+            print("포지션 : " + infos[2]['positionSide'])
+            print("마진 :" + infos[2]['isolatedMargin'])
+            print("지갑 : " + infos[2]['isolatedWallet'])
+            long_sub = float(infos[1]['isolatedMargin']) - float(infos[1]['isolatedWallet'])
+            long_pnl = long_sub/float(infos[1]['isolatedWallet'])*100
+            short_sub=float(infos[2]['isolatedMargin']) - float(infos[2]['isolatedWallet'])
+            short_pnl = short_sub / float(infos[2]['isolatedWallet']) * 100
+            print("롱포 수익률 : "+str(long_pnl))
+            print("숏포 수익률 : "+str(short_pnl))
+            long_pre_amount = float(infos[1]['positionAmt'])
+            short_pre_amount = -float(infos[2]['positionAmt'])
+            print("롱 소유량 "+ str(long_pre_amount))
+            print("숏 소유량 "+ str(short_pre_amount))
+        except:
+            print("숏, 롱 둘중하나 아직 매수 없음")
+
+
+
+        print("1이면 숏 진입 0이면 없음 : " + str(flag_short))
+
+        print("1이면 롱 집입 0이면 업음 : " + str(flag_long))
+
+        sys.stdout.close()
+        sys.stdout = logf
+
+        binance = ccxt.binance(config={
+            'apiKey': '',  # ' ' 부분 지우고 의뢰자님 공개기 입력해주세요
+            'secret': '',  # ' ' 부분 지우고 의뢰자님 비밀키 입력해주세요.
+            'enableRateLimit': True,
+            'options': {
+
+                'defaultType': 'future'
+            }
+        })
+
+        btc_ohlcv = binance.fetch_ohlcv(
+            symbol="BTCUSDT",
+            timeframe='1m',
+            since=None,
+            limit=2
+        )
+
+
+
+        df = pd.DataFrame(btc_ohlcv, columns=['datetime', 'open', 'high', 'low', 'close', 'volume'])
+        df['datetime'] = pd.to_datetime(df['datetime'], unit='ms')
+        df.set_index('datetime', inplace=True)
+
+        price_tset = round(float(df.iloc[0]['open']), 4)
+        price_open = round(float(df.iloc[0]['close']), 4)
+        price_close = round(float(df.iloc[1]['close']), 4)
+        print(price_open)
+        price_margin = round((price_close - price_open), 4)
+        print(price_margin)
+
+
+        # 잔고조회 및 현재 금액의 50%매수 알고리즘
+        balance = binance.fetch_balance(params={"type": "future"})
+        ihave = float(balance['USDT']['free'])
+        long_buy_amount = float(round(ihave / ((price_open + 100)), 3))
+        short_buy_amount = float(round(ihave / ((price_open - 100)), 3))
+        mycoin = float(balance['USDT']['used'])
+        long_sell_amount = float(round(mycoin / ((price_open + 150) * 2), 3))
+        long_sell_more = float(round(mycoin / (price_open + 200), 3))
+        long_sell_after = float(round(mycoin / (price_open + 2), 3))
+        short_sell_amount = float(round(mycoin / ((price_open - 150) * 2), 3))
+        short_sell_more = float(round(mycoin / (price_open - 200), 3))
+        short_sell_after = float(round(mycoin / (price_open - 2), 3))
+
+        print("롱 매수 코인 비율 : " + str(long_buy_amount))
+        print("숏 매수 코인 비율 : " + str(short_buy_amount))
+        print("자유로운 돈 : " + str(ihave))
+        print("갖고있는 코인 : " + str(mycoin))
+        print("롱 조건되면 팔 수량 : " + str(long_sell_amount))
+        print("숏 조건되면 팔 수량 : " + str(short_sell_amount))
+        print("시가 : " + str(price_open))
+        print("종가 : " + str(price_close))
+
+
+        logf = sys.stdout
+        sys.stdout = open('log' + str(datelog) + '.txt', 'a+')
+        print("롱 매수 코인 비율 : " + str(long_buy_amount))
+        print("숏 매수 코인 비율 : " + str(short_buy_amount))
+        print("자유로운 돈 : " + str(ihave))
+        print("갖고있는 코인 : " + str(mycoin))
+        print("롱 조건되면 팔 수량 : " + str(long_sell_amount))
+        print("숏 조건되면 팔 수량 : " + str(short_sell_amount))
+        print("시가 : " + str(price_open))
+        print("종가 : " + str(price_close))
+
+        sys.stdout.close()
+        sys.stdout = logf
+
+        # 포지션 조회
+        balance = binance.fetch_balance()
+        positions = balance['info']['positions']
+
+
+        # 래버리지 설정 #만약 웹페이지에서 로그인 한 상태에서 레버리지를 설정하고 있다면 해당 코드의 레버리지 적용은 무시됩니다.
+        markets = binance.load_markets()
+        symbol = "BTC/USDT"
+        market = binance.market(symbol)
+        leverage = 10
+        resp = binance.fapiPrivate_post_leverage({
+            'symbol': market['id'],
+            'leverage': leverage
+        })
+
+
+
+        sell_time = datetime.datetime.now().second
+
+
+
+
+        logf = sys.stdout
+        sys.stdout = open('log' + str(datelog) + '.txt', 'a+')
+        buy_time_plus = datetime.datetime.now().second
+        print("종가 - 시가 : " + str(price_margin))
+
+        # order = client.futures_create_order(symbol='BTCUSDT', side='SELL', positionSide='LONG',
+        #                                    type='LIMIT', price=price_close - 1, timeInForce='GTC',
+        #                                    quantity=long_pre_amount)
+        #
+        # order2 = client.futures_create_order(symbol='BTCUSDT', side='BUY', positionSide='SHORT',
+        #                                      type='LIMIT', price=price_close + 1, timeInForce='GTC',
+        #                                      quantity=short_pre_amount)
+        #
+        # pprint.pprint(order)
+        # pprint.pprint(order2)
+
+        if (flag_long == 0 or long_pnl < -10):
+            try:
+
+                amount1 = 0
+                if (30 / ((price_close) + 2)) > 0.001:
+                    amount1 = 30 / ((price_close) + 2)
+                else:
+                    amount1 = 0.001
+
+                print("어마운트 : "+str(amount1) )
+                amount1 = round(amount1,3)
+                order = client.futures_create_order(symbol='BTCUSDT', side='BUY', positionSide='LONG',
+                                                    type='LIMIT', price=price_close + 2, timeInForce='GTC',
+                                                    quantity=amount1)
+
+                flag_long = flag_long + 1
+                print(str(flag_long) + "번째 롱 매수")
+                pprint.pprint(order)
+
+
+
+            except:
+                print(str(flag_long) + "번째 롱 매수 실패 : 돈 없거나 등등..")
+
+
+
+        if (flag_short == 0 or short_pnl < -10):
+            # Buy/Long 기능과 동일 기능
+            try:
+                amount = 0
+                if (30 / ((price_close) - 2)) > 0.001:
+                    amount = 30 / ((price_close) - 2)
+                else:
+                    amount = 0.001
+
+                print("어마운트 숏 "+str(amount))
+                amount = round(amount, 3)
+                order = client.futures_create_order(symbol='BTCUSDT', side='SELL', positionSide='SHORT',
+                                                    type='LIMIT', price=price_close - 2, timeInForce='GTC',
+                                                    quantity=amount)
+
+                flag_short = flag_short +1
+                print(str(flag_short) + "번째 숏 매수")
+                pprint.pprint(order)
+
+            except:
+                print(str(flag_short) + "번째 숏 매수 실패 : 돈없거나 등등")
+
+
+        if flag_long > 1 and long_pnl < 1 and long_pnl > -1:
+            try:
+
+
+
+                order = client.futures_create_order(symbol='BTCUSDT', side='SELL', positionSide='LONG',
+                                                    type='LIMIT', price=price_close - 1, timeInForce='GTC',
+                                                    quantity=long_pre_amount)
+
+                order2 = client.futures_create_order(symbol='BTCUSDT', side='BUY', positionSide='SHORT',
+                                                    type='LIMIT', price=price_close + 1, timeInForce='GTC',
+                                                    quantity=short_pre_amount)
+
+                pprint.pprint(order)
+                pprint.pprint(order2)
+                flag_long = 0
+                flag_short =0
+                print("물타기 수익률 0퍼 되서 매수 롱")
+            except:
+                print("물타기 수익률 0포 롱 매도 실패")
+
+        if flag_short > 1 and short_pnl < 1 and short_pnl > -1:
+            try:
+                order = client.futures_create_order(symbol='BTCUSDT', side='SELL', positionSide='LONG',
+                                                    type='LIMIT', price=price_close - 1, timeInForce='GTC',
+                                                    quantity=long_pre_amount)
+
+                order2 = client.futures_create_order(symbol='BTCUSDT', side='BUY', positionSide='SHORT',
+                                                     type='LIMIT', price=price_close + 1, timeInForce='GTC',
+                                                     quantity=short_pre_amount)
+                pprint.pprint(order)
+                pprint.pprint(order2)
+                flag_long = 0
+                flag_short = 0
+                print("물타기 수익률 0퍼 되서 매수 숏")
+            except:
+                print("물타기 수익률 0포 숏 매도 실패")
+
+
+        if flag_long > 1 and long_pnl < -95:
+            try:
+                order = client.futures_create_order(symbol='BTCUSDT', side='SELL', positionSide='LONG',
+                                                    type='LIMIT', price=price_close - 1, timeInForce='GTC',
+                                                    quantity=long_pre_amount)
+
+                order2 = client.futures_create_order(symbol='BTCUSDT', side='BUY', positionSide='SHORT',
+                                                     type='LIMIT', price=price_close + 1, timeInForce='GTC',
+                                                     quantity=short_pre_amount)
+                pprint.pprint(order)
+                pprint.pprint(order2)
+                flag_long = 0
+                flag_short = 0
+                print("롱쪽 손절 청산")
+            except:
+                print("롱쪽 손절 청산 실패")
+
+        if flag_short > 1 and short_pnl < -95:
+            try:
+                order = client.futures_create_order(symbol='BTCUSDT', side='SELL', positionSide='LONG',
+                                                    type='LIMIT', price=price_close - 1, timeInForce='GTC',
+                                                    quantity=long_pre_amount)
+
+                order2 = client.futures_create_order(symbol='BTCUSDT', side='BUY', positionSide='SHORT',
+                                                     type='LIMIT', price=price_close + 1, timeInForce='GTC',
+                                                     quantity=short_pre_amount)
+                pprint.pprint(order)
+                pprint.pprint(order2)
+                flag_long = 0
+                flag_short = 0
+                print("숏쪽 손절 청산")
+            except:
+                print("숏쪽 손절 청산 실패")
+
+        print("루프 종료 ==================================")
+        sys.stdout.close()
+        sys.stdout = logf
+
+
+
+    except:
+        print("binance or ccxt connect fail !!!")
+        time.sleep(5)
+
+
+i = 0
+# i < 10 이부분을 1 로 하고 밑에 i = i+1 을 지우면 무한으로 돌고, 10을 원하는 수로 바꾸면 원하는 수만큼 참조합니다. 1초당 1.5회정도 도는것 같습니다.
+while i < 1:
+    Start_Future_Margin()
+
+# 끝끝
